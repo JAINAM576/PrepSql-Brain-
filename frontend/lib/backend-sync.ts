@@ -34,6 +34,7 @@ export async function syncSessionToBackend(clientId: string): Promise<void> {
       if (!connRes.ok) {
         const errorText = await connRes.text();
         console.error(`[Sync] Failed to sync connection to backend: ${connRes.status} - ${errorText}`);
+        throw new Error(`Failed to sync database connection to backend: ${errorText || connRes.statusText}`);
       }
     }
 
