@@ -28,7 +28,8 @@ def introspect_sqlite(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     if is_remote_sqlite(filepath):
         import libsql_client
         auth_token = config.get("password") or ""
-        with libsql_client.create_client_sync(filepath, auth_token=auth_token) as client:
+        url = filepath.replace("libsql://", "https://", 1) if filepath.startswith("libsql://") else filepath
+        with libsql_client.create_client_sync(url, auth_token=auth_token) as client:
             res_tables = client.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
             tables = [row[0] for row in res_tables.rows]
             

@@ -139,7 +139,8 @@ def test_connection(config: Dict[str, Any]) -> bool:
         if is_remote_sqlite(filepath):
             import libsql_client
             auth_token = config.get("password") or ""
-            with libsql_client.create_client_sync(filepath, auth_token=auth_token) as client:
+            url = filepath.replace("libsql://", "https://", 1) if filepath.startswith("libsql://") else filepath
+            with libsql_client.create_client_sync(url, auth_token=auth_token) as client:
                 client.execute("SELECT 1")
                 return True
         # Ensure directory exists
@@ -201,7 +202,8 @@ def execute_query(config: Dict[str, Any], sql: str) -> Dict[str, Any]:
         if is_remote_sqlite(filepath):
             import libsql_client
             auth_token = config.get("password") or ""
-            with libsql_client.create_client_sync(filepath, auth_token=auth_token) as client:
+            url = filepath.replace("libsql://", "https://", 1) if filepath.startswith("libsql://") else filepath
+            with libsql_client.create_client_sync(url, auth_token=auth_token) as client:
                 result_set = client.execute(sql)
                 columns = result_set.columns
                 rows = []
