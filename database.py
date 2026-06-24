@@ -133,7 +133,11 @@ def test_connection(config: Dict[str, Any]) -> bool:
             raise ValueError("Filepath required for SQLite")
         # Ensure directory exists
         if filepath != ":memory:":
-            os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
+            try:
+                os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
+            except Exception as e:
+                # Log or ignore if the directory might already exist or if we can connect anyway
+                print(f"Warning: could not create directory for sqlite database: {e}")
         conn = sqlite3.connect(filepath)
         try:
             cursor = conn.cursor()
@@ -282,9 +286,39 @@ def execute_query(config: Dict[str, Any], sql: str) -> Dict[str, Any]:
 
 
 def get_demo_db_path() -> str:
-    data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
-    os.makedirs(data_dir, exist_ok=True)
-    return os.path.join(data_dir, 'data.db')
+    # Try local backend data directory first
+    try:
+        data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
+        os.makedirs(data_dir, exist_ok=True)
+        # Test write access
+        test_path = os.path.join(data_dir, ".write_test")
+        with open(test_path, "w") as f:
+            f.write("test")
+        os.remove(test_path)
+        return os.path.join(data_dir, 'data.db')
+    except Exception:
+        pass
+
+    # Try parent data directory next
+    try:
+        data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
+        os.makedirs(data_dir, exist_ok=True)
+        # Test write access
+        test_path = os.path.join(data_dir, ".write_test")
+        with open(test_path, "w") as f:
+            f.write("test")
+        os.remove(test_path)
+        return os.path.join(data_dir, 'data.db')
+    except Exception:
+        pass
+
+    # Fallback to /tmp
+    try:
+        data_dir = "/tmp/prepsql-data"
+        os.makedirs(data_dir, exist_ok=True)
+        return os.path.join(data_dir, 'data.db')
+    except Exception:
+        return "/tmp/data.db"
 
 
 def ensure_demo_database() -> str:

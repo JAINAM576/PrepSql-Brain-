@@ -24,6 +24,7 @@ from langchain_groq import ChatGroq
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import SystemMessage, HumanMessage
 
+DEMO_DB_NAME = 'Company Database (Complex)'
 app = FastAPI(title="PrepSQL Backend", version="1.0.0")
 
 # Enable CORS for development
@@ -142,6 +143,19 @@ def set_connection(
     session_id: str = Header(..., alias="x-prepsql-session-id")
 ):
     conn_dict = payload.model_dump()
+    
+    # Map SQLite demo database path to local backend path if needed
+    if conn_dict.get("type") == "sqlite":
+        filepath = conn_dict.get("filepath") or ""
+        name = conn_dict.get("name") or ""
+        if name == DEMO_DB_NAME or "demo" in name.lower() or "data.db" in filepath.lower():
+            try:
+                local_path = ensure_demo_database()
+                conn_dict["filepath"] = local_path
+                payload.filepath = local_path
+            except Exception as e:
+                print(f"Warning: failed to ensure demo database during connection sync: {e}")
+
     valid, err_msg = validate_connection(conn_dict)
     if not valid:
         raise HTTPException(status_code=400, detail=err_msg)
@@ -193,7 +207,7 @@ def delete_connection(
     return {"success": True}
 
 
-DEMO_DB_NAME = 'Company Database (Complex)'
+
 
 @app.post("/api/demo")
 def setup_demo_db(session_id: str = Header(..., alias="x-prepsql-session-id")):
