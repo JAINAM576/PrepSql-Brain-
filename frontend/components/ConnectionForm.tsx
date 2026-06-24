@@ -74,6 +74,9 @@ export function ConnectionForm({ onConnected, isLoading = false, autoConnect = f
 
       if (dbType === 'sqlite') {
         payload.filepath = filepath;
+        if (filepath.startsWith('libsql://') || filepath.startsWith('https://') || filepath.startsWith('http://')) {
+          payload.password = password;
+        }
       } else {
         payload.host = host;
         payload.port = parseInt(port, 10);
@@ -152,15 +155,29 @@ export function ConnectionForm({ onConnected, isLoading = false, autoConnect = f
       </div>
 
       {dbType === 'sqlite' ? (
-        <div>
-          <label className="mb-1 block text-sm font-medium">File Path</label>
-          <input
-            type="text"
-            value={filepath}
-            onChange={(e) => setFilepath(e.target.value)}
-            placeholder="/path/to/database.db"
-            className="w-full rounded-md border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-          />
+        <div className="space-y-4">
+          <div>
+            <label className="mb-1 block text-sm font-medium">File Path / URL</label>
+            <input
+              type="text"
+              value={filepath}
+              onChange={(e) => setFilepath(e.target.value)}
+              placeholder="/path/to/database.db or libsql://..."
+              className="w-full rounded-md border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+          </div>
+          {(filepath.startsWith('libsql://') || filepath.startsWith('https://') || filepath.startsWith('http://')) && (
+            <div>
+              <label className="mb-1 block text-sm font-medium">Auth Token (Optional for Turso/LibSQL)</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Turso Auth Token"
+                className="w-full rounded-md border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+          )}
         </div>
       ) : (
         <>

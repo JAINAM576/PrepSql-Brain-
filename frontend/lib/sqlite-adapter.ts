@@ -1,4 +1,5 @@
 import { createRequire } from 'module';
+import { createClient } from '@libsql/client/web';
 const req = createRequire(import.meta.url);
 const { DatabaseSync } = eval("req('node:sqlite')");
 
@@ -81,4 +82,82 @@ export function openSqlite(filepath: string): SqliteAdapter {
 
 export function openSqliteSync(filepath: string): any {
   return new DatabaseSync(filepath);
+}
+
+export function openLibSql(url: string, authToken?: string): SqliteAdapter {
+  const client = createClient({ url, authToken });
+
+  return {
+    _db: client,
+    all(sql, cb) {
+      client.execute(sql)
+        .then((res) => {
+          const rows = res.rows.map((row) => {
+            const obj: Record<string, any> = {};
+            res.columns.forEach((col, idx) => {
+              obj[col] = row[idx];
+            });
+            return obj;
+          });
+          cb(null, rows);
+        })
+        .catch((err) => cb(err, []));
+    },
+    get(sql: string, paramsOrCallback: any | ((err: Error | null, row: any) => void), callback?: (err: Error | null, row: any) => void) {
+      let cb: (err: Error | null, row: any) => void;
+      let params: any[] = [];
+      if (typeof paramsOrCallback === 'function') {
+        cb = paramsOrCallback;
+      } else {
+        params = paramsOrCallback;
+        cb = callback!;
+      }
+
+      let args: any = params;
+      if (Array.isArray(params) && params.length > 0 && sql.includes('$1')) {
+        const bindParams: Record<string, any> = {};
+        params.forEach((val, idx) => {
+          bindParams[`$${idx + 1}`] = val;
+        });
+        args = bindParams;
+      }
+
+      client.execute({ sql, args })
+        .then((res) => {
+          if (res.rows.length === 0) {
+            cb(null, null);
+            return;
+          }
+          const row = res.rows[0];
+          const obj: Record<string, any> = {};
+          res.columns.forEach((col, idx) => {
+            obj[col] = row[idx];
+          });
+          cb(null, obj);
+        })
+        .catch((err) => cb(err, null));
+    },
+    run(sql, cb) {
+      client.execute(sql)
+        .then((res) => {
+          cb.call({ changes: Number(res.rowsAffected) }, null);
+        })
+        .catch((err) => {
+          cb.call({ changes: 0 }, err);
+        });
+    },
+    exec(sql, cb) {
+      client.execute(sql)
+        .then(() => cb(null))
+        .catch((err) => cb(err));
+    },
+    close(cb) {
+      try {
+        client.close();
+      } catch (e) {
+        // ignore
+      }
+      cb?.();
+    },
+  };
 }

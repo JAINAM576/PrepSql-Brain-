@@ -79,6 +79,11 @@ class MySQLPool:
                     break
             self.active_connections = 0
 
+def is_remote_sqlite(filepath: str) -> bool:
+    if not filepath:
+        return False
+    return filepath.startswith("libsql://") or filepath.startswith("http://") or filepath.startswith("https://") or ".turso.io" in filepath
+
 def get_pool_key(config: Dict[str, Any]) -> str:
     db_type = config.get("type")
     if db_type == "sqlite":
@@ -131,6 +136,12 @@ def test_connection(config: Dict[str, Any]) -> bool:
         filepath = config.get("filepath")
         if not filepath:
             raise ValueError("Filepath required for SQLite")
+        if is_remote_sqlite(filepath):
+            import libsql_client
+            auth_token = config.get("password") or ""
+            with libsql_client.create_client_sync(filepath, auth_token=auth_token) as client:
+                client.execute("SELECT 1")
+                return True
         # Ensure directory exists
         if filepath != ":memory:":
             try:
@@ -187,6 +198,25 @@ def execute_query(config: Dict[str, Any], sql: str) -> Dict[str, Any]:
 
     if db_type == "sqlite":
         filepath = pool  # pool holds the filepath for SQLite
+        if is_remote_sqlite(filepath):
+            import libsql_client
+            auth_token = config.get("password") or ""
+            with libsql_client.create_client_sync(filepath, auth_token=auth_token) as client:
+                result_set = client.execute(sql)
+                columns = result_set.columns
+                rows = []
+                for row in result_set.rows:
+                    row_dict = {}
+                    for col_idx, col_name in enumerate(columns):
+                        row_dict[col_name] = row[col_idx]
+                    rows.append(row_dict)
+                rows_affected = getattr(result_set, "rows_affected", len(rows))
+                return {
+                    "columns": columns,
+                    "rows": rows,
+                    "rowsAffected": rows_affected
+                }
+
         lock = get_sqlite_lock(filepath)
         with lock:
             conn = sqlite3.connect(filepath)

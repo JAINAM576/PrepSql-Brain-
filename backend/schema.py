@@ -13,7 +13,7 @@ def introspect_schema(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     pool = get_or_create_pool(config)
 
     if db_type == "sqlite":
-        return introspect_sqlite(pool)
+        return introspect_sqlite(config)
     elif db_type == "postgresql":
         return introspect_postgresql(pool)
     elif db_type in ("mysql", "mariadb"):
@@ -21,7 +21,83 @@ def introspect_schema(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     else:
         raise ValueError(f"Unsupported database type: {db_type}")
 
-def introspect_sqlite(filepath: str) -> List[Dict[str, Any]]:
+def introspect_sqlite(config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    filepath = config.get("filepath") or ""
+    from database import is_remote_sqlite
+    
+    if is_remote_sqlite(filepath):
+        import libsql_client
+        auth_token = config.get("password") or ""
+        with libsql_client.create_client_sync(filepath, auth_token=auth_token) as client:
+            res_tables = client.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+            tables = [row[0] for row in res_tables.rows]
+            
+            result = []
+            for table_name in tables:
+                res_columns = client.execute(f'PRAGMA table_info("{table_name}")')
+                col_name_idx = res_columns.columns.index("name")
+                col_type_idx = res_columns.columns.index("type")
+                col_notnull_idx = res_columns.columns.index("notnull")
+                col_dflt_idx = res_columns.columns.index("dflt_value")
+                col_pk_idx = res_columns.columns.index("pk")
+                
+                res_fks = client.execute(f'PRAGMA foreign_key_list("{table_name}")')
+                fk_from_idx = res_fks.columns.index("from")
+                fk_table_idx = res_fks.columns.index("table")
+                fk_to_idx = res_fks.columns.index("to")
+                
+                fk_map = {}
+                for fk in res_fks.rows:
+                    fk_map[fk[fk_from_idx]] = {"table": fk[fk_table_idx], "column": fk[fk_to_idx]}
+                
+                res_idx = client.execute(f'PRAGMA index_list("{table_name}")')
+                idx_name_idx = res_idx.columns.index("name")
+                idx_unique_idx = res_idx.columns.index("unique")
+                
+                unique_cols = set()
+                index_names = []
+                for idx in res_idx.rows:
+                    idx_name = idx[idx_name_idx]
+                    index_names.append(idx_name)
+                    if idx[idx_unique_idx] == 1:
+                        res_idx_info = client.execute(f'PRAGMA index_info("{idx_name}")')
+                        info_name_idx = res_idx_info.columns.index("name")
+                        for col in res_idx_info.rows:
+                            if col[info_name_idx]:
+                                unique_cols.add(col[info_name_idx])
+                
+                res_sql = client.execute(f"SELECT sql FROM sqlite_master WHERE type='table' AND name='{table_name}'")
+                table_sql = ""
+                if res_sql.rows:
+                    sql_val = res_sql.rows[0][0]
+                    table_sql = sql_val.lower() if sql_val else ""
+                
+                res_count = client.execute(f'SELECT COUNT(*) as count FROM "{table_name}"')
+                row_count = res_count.rows[0][0] if res_count.rows else 0
+                
+                columns = []
+                for c in res_columns.rows:
+                    is_pk = c[col_pk_idx] > 0
+                    is_auto = is_pk and "autoincrement" in table_sql
+                    columns.append({
+                        "name": c[col_name_idx],
+                        "type": c[col_type_idx],
+                        "nullable": c[col_notnull_idx] == 0,
+                        "defaultValue": c[col_dflt_idx],
+                        "primaryKey": is_pk,
+                        "unique": c[col_name_idx] in unique_cols,
+                        "autoIncrement": is_auto,
+                        "foreignKey": fk_map.get(c[col_name_idx])
+                    })
+                
+                result.append({
+                    "name": table_name,
+                    "columns": columns,
+                    "rowCount": row_count,
+                    "indexes": index_names
+                })
+            return result
+
     lock = get_sqlite_lock(filepath)
     with lock:
         conn = sqlite3.connect(filepath)
@@ -29,7 +105,6 @@ def introspect_sqlite(filepath: str) -> List[Dict[str, Any]]:
         try:
             cursor = conn.cursor()
             
-            # Fetch all tables
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
             tables = [row["name"] for row in cursor.fetchall()]
             
